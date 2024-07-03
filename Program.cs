@@ -46,24 +46,46 @@ var app = builder.Build();
 app.UseAntiforgery();
 
 // Load home page.
-app.MapGet("/", (Wiki wiki, Render render) =>
+app.MapGet("/", (Wiki wiki, Render render, HttpContext context, IAntiforgery antiforgery) =>
 {
-    Page? page = wiki.GetPage(HomePageName);
-
-    if (page is null)
-        return Results.Redirect($"/{HomePageName}");
-
-    return Results.Text(render.BuildPage(HomePageName,
-        atBody: () =>
-        [
-            RenderPageContent(page),
-            RenderPageAttachments(page),
-            A.Href($"/edit?pageName={HomePageName}")
-            .Class("uk-button uk-button-default uk-button-small")
-            .Append("Edit").ToHtmlString()
-        ],
-        atSidePanel: () => RenderAllPages(wiki)
-      ).ToString(), HtmlMime);
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    return Results.Content($"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Knowledge Nexus</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+        </head>
+        <body>
+            <div id="mainContent">
+                <header>
+                    <nav class="navbar navbar-light bg-dark">
+                        <div class="container-fluid">
+                            <a class="navbar-brand text-light">Knowledge Nexus</a>
+                            <form class="d-flex">
+                                <input type="hidden" name="{tokens.FormFieldName}" value="{tokens.RequestToken}">
+                                <input name="searchParameter" class="form-control me-2" type="search" placeholder="Search" aria-label="Search">
+                                <button hx-post="/search" hx-target="#searchTarget" class="btn btn-outline-light" type="submit">Search</button>
+                            </form>
+                        </div>
+                    </nav>
+                </header>
+                <main id="searchTarget">
+                    <div class="d-flex justify-content-center align-items-center vh-100">
+                        <div class="container mt-5 w-75 text-dark">
+                            <h1 class="text-center fs-1 fw-bold">Welcome to Knowledge Nexus</h1>
+                            <p class="text-center">Explore, Learn, Share: Unveiling Knowledge Together..</p>
+                        </div>
+                    </div>
+                </main>
+            </div>
+            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+            <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+        </body>
+        </html>
+    """, HtmlMime);
 });
 
 // Create and redirect to a new page.
@@ -272,7 +294,13 @@ app.MapPost("/{pageName}", async (HttpContext context, Wiki wiki, Render render,
 app.MapGet("/history", (Wiki wiki, Render render) =>
 {
     var history = wiki.GetChangeHistory();
-    return Results.Text(RenderHistoryPage(history), "text/html");
+    return Results.Content(RenderHistoryPage(history), HtmlMime);
+});
+
+app.MapPost("/search", ([FromForm] string searchParameter, Wiki wiki, IAntiforgery antiforgery, HttpContext context) => {
+    antiforgery.ValidateRequestAsync(context);
+    var searchResults = wiki.Search(searchParameter);
+    return Results.Content(RenderSearchResults(searchResults), HtmlMime);
 });
 
 await app.RunAsync();
@@ -289,6 +317,18 @@ static string[] RenderAllPages(Wiki wiki) =>
     ),
     "</ul>"
 ];
+
+static string RenderSearchResults(List<Page> pages) =>
+    $"""
+        <div class="card m-auto mt-5" style="width: 18rem;">
+            <div class="card-header">
+                Results
+            </div>
+            <ul class="list-group list-group-flush">
+    """ + string.Join("",
+        pages.OrderBy(page => page.Name)
+        .Select(page => Li.Class("list-group-item").Append(A.Href(page.Name).Append(page.Name)).ToHtmlString())
+    ) + "</ul>";
 
 static string[] RenderAllPagesForEditing(Wiki wiki)
 {
@@ -417,7 +457,7 @@ static string RenderWikiInputForm(PageInput input, string path, AntiforgeryToken
 
     var attachmentField = Div.Append(Label.Class("uk-form-label").Append(nameof(input.Attachment)))
                              .Append(Div.Attribute("uk-form-custom", "target: true")
-                                        .Append(Input.File.Name("Attachment"))
+                                        .Append(Input.File.Name("Attachment").Style("cursor", "pointer"))
                                         .Append(Input.Text.Class("uk-input uk-form-width-large")
                                                           .Attribute("placeholder", "Click to select file")
                                                           .ToggleAttribute("disabled", true)));
@@ -526,6 +566,7 @@ class Render
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>{{ title }}</title>
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/css/uikit.min.css" />
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
             {{ header }}
             <style>
                 .last-modified { font-size: small; }
@@ -581,6 +622,8 @@ class Render
                 
             <script src="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/js/uikit.min.js"></script>
             <script src="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/js/uikit-icons.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+            <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
             {{ at_foot }}
                     
             """
@@ -679,6 +722,17 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
         using var database = new LiteDatabase(GetDatabasePath());
         var collection = database.GetCollection<ChangeRecord>("ChangeHistory");
         var history = collection.Query().ToList();
+        return history;
+    }
+
+    public List<Page> Search(string searchParameter)
+    {
+        using var database = new LiteDatabase(GetDatabasePath());
+        var collection = database.GetCollection<Page>(PageCollectionName);
+        var history = collection.Query()
+                                .Where(page => page.Name.Contains(searchParameter, StringComparison.OrdinalIgnoreCase)
+                                || page.Content.Contains(searchParameter, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
         return history;
     }
 

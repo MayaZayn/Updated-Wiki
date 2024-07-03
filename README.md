@@ -16,24 +16,28 @@ Updates:
     - improve some error messages
     - fix typos
     - add app.UseAntiforgery()
+    - add search
+    - make a landing page
+    - use bootstrap in landing page
 
 To-Do:
     style:
+        bootstrap (responsiveness)
         add footer
         make text doesn't look like buttons
         make the select file cursor change
-        make the files at the side panel have the same format (either underline all links or don't)
         make the landing page different and no one can edit it
         make returns almost the same (same style)
+        change post to delete
+        use margins
     functionality:
-        add history
-        add search
+        add history (display properly)
+        antiforgery
         view image uploaded via markdown
         fix db shared issue
 
-    consider using Carter (library) to group endpoints
+    if found no search, say so
+    consider using cache and reusing stuff already used
     error handling
     check for more redundancy
     make sure everything has one resposibility
-    add features if I want
-    antiforgery (Are they used whenever needed?)
