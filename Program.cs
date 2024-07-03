@@ -46,7 +46,7 @@ var app = builder.Build();
 app.UseAntiforgery();
 
 // Load home page.
-app.MapGet("/", (Wiki wiki, Render render, HttpContext context, IAntiforgery antiforgery) =>
+app.MapGet("/", (HttpContext context, IAntiforgery antiforgery) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(context);
     return Results.Content($"""
@@ -92,7 +92,7 @@ app.MapGet("/", (Wiki wiki, Render render, HttpContext context, IAntiforgery ant
 app.MapGet("/new-page", (string? pageName, Wiki wiki) =>
 {
     if (string.IsNullOrEmpty(pageName))
-        Results.Redirect("/");
+        return Results.Redirect("/");
 
     // Referenced from https://www.30secondsofcode.org/c-sharp/s/to-kebab-case
     Regex pattern = new(@"[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+");
@@ -294,7 +294,8 @@ app.MapPost("/{pageName}", async (HttpContext context, Wiki wiki, Render render,
 app.MapGet("/history", (Wiki wiki, Render render) =>
 {
     var history = wiki.GetChangeHistory();
-    return Results.Content(RenderHistoryPage(history), HtmlMime);
+    var html = render.RenderHistoryPage(history).ToString();
+    return Results.Content(html, HtmlMime);
 });
 
 app.MapPost("/search", ([FromForm] string searchParameter, Wiki wiki, IAntiforgery antiforgery, HttpContext context) => {
@@ -460,7 +461,7 @@ static string RenderWikiInputForm(PageInput input, string path, AntiforgeryToken
                                         .Append(Input.File.Name("Attachment").Style("cursor", "pointer"))
                                         .Append(Input.Text.Class("uk-input uk-form-width-large")
                                                           .Attribute("placeholder", "Click to select file")
-                                                          .ToggleAttribute("disabled", true)));
+                                                          .ToggleAttribute("disabled", false)));
 
     if (modelState is not null && !modelState.IsValid)
     {
@@ -505,34 +506,6 @@ static string RenderWikiInputForm(PageInput input, string path, AntiforgeryToken
     return form.ToHtmlString();
 }
 
-static string RenderHistoryPage(List<ChangeRecord> history)
-{
-    var template = Scriban.Template.Parse(
-        """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Change History</title>
-        </head>
-        <body>
-            <h1>Change History</h1>
-            <ul>
-                {{ for record in history }}
-                    <li>
-                        {{ record }}
-                    </li>
-                {{ end }}
-            </ul>
-        </body>
-        </html>
-        """
-    );
-
-    var html = template.Render(new { history });
-
-    return html;
-}
-
 class Render
 {
     static string KebabToNormalCase(string txt) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(txt.Replace('-', ' '));
@@ -566,66 +539,87 @@ class Render
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>{{ title }}</title>
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/css/uikit.min.css" />
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
             {{ header }}
             <style>
                 .last-modified { font-size: small; }
                 a:visited { color: blue; }
                 a:link { color: red; }
+                nav {
+                    background-color: #212529 !important; 
+                    color: white !important;               
+                }
+                nav * {
+                    color: inherit !important;
+                }
             </style>
             """
         ),
         body: Scriban.Template.Parse(
             """
             <nav class="uk-navbar-container">
-            <div class="uk-container">
-                <div class="uk-navbar">
-                <div class="uk-navbar-left">
-                    <ul class="uk-navbar-nav">
-                        <li class="uk-active"><a href="/"><span uk-icon="home"></span></a></li>
-                    </ul>
-                </div>
-                <div class="uk-navbar-center">
-                    <div class="uk-navbar-item">
-                    <form action="/new-page">
-                        <input class="uk-input uk-form-width-large" type="text" name="pageName" placeholder="Type desired page title here"></input>
-                        <input type="submit"  class="uk-button uk-button-default" value="Add New Page">
-                    </form>
+                <div class="uk-container">
+                    <div class="uk-navbar">
+                        <div class="uk-navbar-left">
+                            <ul class="uk-navbar-nav">
+                                <li class="uk-active"><a href="/"><span uk-icon="home"></span></a></li>
+                            </ul>
+                        </div>
+                        <div class="uk-navbar-center uk-visible@m">
+                            <div class="uk-navbar-item">
+                                <form action="/new-page">
+                                    <input class="uk-input uk-form-width-large" type="text" name="pageName" placeholder="Type desired page title here"></input>
+                                    <input type="submit" class="uk-button uk-button-default" value="Add New Page">
+                                </form>
+                            </div>
+                        </div>
+                        <div class="uk-navbar-right">
+                            <ul class="uk-navbar-nav uk-visible@m">
+                                <li class="uk-active"><a href="/history">View History</a></li>
+                            </ul>
+                            <a class="uk-navbar-toggle uk-hidden@m" uk-navbar-toggle-icon uk-toggle="target: #offcanvas-nav"></a>
+                        </div>
                     </div>
                 </div>
-                <div class="uk-navbar-right">
-                    <ul class="uk-navbar-nav">
+            </nav>
+
+            <div id="offcanvas-nav" uk-offcanvas="overlay: true">
+                <div class="uk-offcanvas-bar">
+                    <ul class="uk-nav uk-nav-default">
                         <li class="uk-active"><a href="/history">View History</a></li>
+                        <li class="uk-nav-header">Add New Page</li>
+                        <li>
+                            <form action="/new-page">
+                                <input class="uk-input uk-form-width-large uk-margin-small-bottom" type="text" name="pageName" placeholder="Type desired page title here"></input>
+                                <input type="submit" class="uk-button uk-button-default" value="Add New Page">
+                            </form>
+                        </li>
                     </ul>
                 </div>
-                </div>
             </div>
-            </nav>
             {{ if at_side_panel != "" }}
-            <div class="uk-container">
-            <div uk-grid>
-                <div class="uk-width-4-5">
-                <h1>{{ page_name }}</h1>
-                {{ content }}
+                <div class="uk-container uk-margin-bottom">
+                    <div uk-grid>
+                        <div class="uk-width-expand@s uk-width-4-5@m uk-margin-top">
+                            <h1>{{ page_name }}</h1>
+                            {{ content }}
+                        </div>
+                        <div class="uk-width-1-1 uk-width-1-3@s uk-width-1-5@m uk-margin-top">
+                            <hr class="uk-hidden@m">
+                            {{ at_side_panel }}
+                        </div>
+                    </div>
                 </div>
-                <div class="uk-width-1-5">
-                {{ at_side_panel }}
-                </div>
-            </div>
-            </div>
             {{ else }}
-            <div class="uk-container">
-                <h1>{{ page_name }}</h1>
-                {{ content }}
-            </div>
+                <div class="uk-container uk-margin-top uk-margin-bottom">
+                    <h1>{{ page_name }}</h1>
+                    {{ content }}
+                </div>
             {{ end }}
-                
             <script src="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/js/uikit.min.js"></script>
             <script src="https://cdn.jsdelivr.net/npm/uikit@3.19.4/dist/js/uikit-icons.min.js"></script>
             <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
             <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
-            {{ at_foot }}
-                    
+            {{ at_foot }}        
             """
         ),
         layout: Scriban.Template.Parse(
@@ -641,6 +635,27 @@ class Render
             """
         )
     );
+
+    public HtmlString RenderHistoryPage(List<ChangeRecord> history)
+    {
+        var atBody = new Func<IEnumerable<string>>(() =>
+        {
+            var html = "<div class=\"uk-card uk-card-default uk-card-large uk-card-body\">";
+            html += "<h3 class=\"uk-card-title\">Change History</h3>";
+            html += "<ul class=\"uk-list uk-list-striped\">";
+            
+            foreach (var changeRecord in history)
+            {
+                html += $"<li>{changeRecord.Date} - {changeRecord.Name}</li>";
+            }
+            
+            html += "</ul></div>";
+            return new List<string> { html };
+        });
+
+        return BuildPage("Change History", atBody: atBody);
+    }
+
 
     // Use only when the page requires editor.
     public HtmlString BuildEditorPage(string title, Func<IEnumerable<string>> atBody, Func<IEnumerable<string>>? atSidePanel = null) =>
@@ -940,10 +955,6 @@ record Page
 
 record ChangeRecord
 {
-    // public ChangeRecord(string v1, DateTime v2)
-    // {
-    // }
-
     public required string Name { get; set; }
     public required DateTime Date { get; set; }
 }
