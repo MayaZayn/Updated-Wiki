@@ -1,4 +1,3 @@
-/// <summary>
 /// This file contains the main program logic for a wiki application.
 /// 
 /// The application provides the following features:
@@ -9,7 +8,6 @@
 /// - Handles user inputs and form submissions
 /// 
 /// This is implemented using a minimal API approach in .NET Core, emphasizing simplicity and performance.
-/// </summary>
 
 using FluentValidation;
 using FluentValidation.AspNetCore;
@@ -45,6 +43,7 @@ builder.Services
 builder.Logging.AddConsole().SetMinimumLevel(LogLevel.Warning);
 
 var app = builder.Build();
+app.UseAntiforgery();
 
 // Load home page.
 app.MapGet("/", (Wiki wiki, Render render) =>
@@ -68,19 +67,25 @@ app.MapGet("/", (Wiki wiki, Render render) =>
 });
 
 // Create and redirect to a new page.
-app.MapGet("/new-page", (string? pageName) =>
+app.MapGet("/new-page", (string? pageName, Wiki wiki) =>
 {
     if (string.IsNullOrEmpty(pageName))
         Results.Redirect("/");
 
-    // Refereced from https://www.30secondsofcode.org/c-sharp/s/to-kebab-case
+    // Referenced from https://www.30secondsofcode.org/c-sharp/s/to-kebab-case
     Regex pattern = new(@"[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+");
     var page = string.Join("-", pattern.Matches(pageName!)).ToLower();
 
+    wiki.AddChangeRecord(new ChangeRecord
+                        {
+                            Name = $"Create Page {pageName}",
+                            Date = DateTime.UtcNow
+                        });
+    
     return Results.Redirect($"/{page}");
 });
 
-// Edit a wiki page.
+// Load edit page.
 app.MapGet("/edit", (string pageName, HttpContext context,
                     Wiki wiki, Render render, IAntiforgery antiForgery) =>
 {
@@ -157,7 +162,7 @@ app.MapGet("/{pageName}", (string pageName, HttpContext context,
     }
 });
 
-app.MapDelete("/delete-page", async ([FromForm] StringValues id, HttpContext context, 
+app.MapPost("/delete-page", async ([FromForm] StringValues id, HttpContext context, 
                                     IAntiforgery antiForgery, Wiki wiki) =>
 {
     await antiForgery.ValidateRequestAsync(context);
@@ -171,14 +176,20 @@ app.MapDelete("/delete-page", async ([FromForm] StringValues id, HttpContext con
     var (isOk, exception) = wiki.DeletePage(Convert.ToInt32(id), HomePageName);
 
     if (!isOk && exception is not null)
-        app.Logger.LogError(exception, MessageErrorTemplate, $"Unable to delete page with id {id}");
+        app.Logger.LogError(exception, MessageErrorTemplate, $"Unable to delete page with id {id}.");
     else if (!isOk)
-        app.Logger.LogError(MessageErrorTemplate, $"Unable to delete page with id {id}");
+        app.Logger.LogError(MessageErrorTemplate, $"Unable to delete page with id {id}.");
+
+    wiki.AddChangeRecord(new ChangeRecord
+                        {
+                            Name = $"Delete Page",
+                            Date = DateTime.UtcNow
+                        });
 
     return Results.Redirect("/");
 });
 
-app.MapDelete("/delete-attachment", async ([FromForm] StringValues id, [FromForm] StringValues pageId,
+app.MapPost("/delete-attachment", async ([FromForm] StringValues id, [FromForm] StringValues pageId,
                                         HttpContext context, IAntiforgery antiForgery, Wiki wiki) =>
 {
     await antiForgery.ValidateRequestAsync(context);
@@ -210,6 +221,12 @@ app.MapDelete("/delete-attachment", async ([FromForm] StringValues id, [FromForm
             return Results.Redirect("/");
     }
 
+    wiki.AddChangeRecord(new ChangeRecord
+                    {
+                        Name = $"Delete Attachement",
+                        Date = DateTime.UtcNow
+                    });
+                    
     return Results.Redirect($"/{page!.Name}");
 });
 
@@ -243,7 +260,19 @@ app.MapPost("/{pageName}", async (HttpContext context, Wiki wiki, Render render,
         return Results.Problem(MessageErrorTemplate, "Problem in saving page.");
     }
 
+    wiki.AddChangeRecord(new ChangeRecord
+                        {
+                            Name = $"Edit Page {pageName}",
+                            Date = DateTime.UtcNow
+                        });
+
     return Results.Redirect($"/{page!.Name}");
+});
+
+app.MapGet("/history", (Wiki wiki, Render render) =>
+{
+    var history = wiki.GetChangeHistory();
+    return Results.Text(RenderHistoryPage(history), "text/html");
 });
 
 await app.RunAsync();
@@ -436,6 +465,34 @@ static string RenderWikiInputForm(PageInput input, string path, AntiforgeryToken
     return form.ToHtmlString();
 }
 
+static string RenderHistoryPage(List<ChangeRecord> history)
+{
+    var template = Scriban.Template.Parse(
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Change History</title>
+        </head>
+        <body>
+            <h1>Change History</h1>
+            <ul>
+                {{ for record in history }}
+                    <li>
+                        {{ record }}
+                    </li>
+                {{ end }}
+            </ul>
+        </body>
+        </html>
+        """
+    );
+
+    var html = template.Render(new { history });
+
+    return html;
+}
+
 class Render
 {
     static string KebabToNormalCase(string txt) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(txt.Replace('-', ' '));
@@ -484,7 +541,7 @@ class Render
                 <div class="uk-navbar">
                 <div class="uk-navbar-left">
                     <ul class="uk-navbar-nav">
-                    <li class="uk-active"><a href="/"><span uk-icon="home"></span></a></li>
+                        <li class="uk-active"><a href="/"><span uk-icon="home"></span></a></li>
                     </ul>
                 </div>
                 <div class="uk-navbar-center">
@@ -494,6 +551,11 @@ class Render
                         <input type="submit"  class="uk-button uk-button-default" value="Add New Page">
                     </form>
                     </div>
+                </div>
+                <div class="uk-navbar-right">
+                    <ul class="uk-navbar-nav">
+                        <li class="uk-active"><a href="/history">View History</a></li>
+                    </ul>
                 </div>
                 </div>
             </div>
@@ -548,7 +610,8 @@ class Render
         );
 
     // General page layout building function.
-    public HtmlString BuildPage(string title, Func<IEnumerable<string>>? atHead = null, Func<IEnumerable<string>>? atBody = null, Func<IEnumerable<string>>? atSidePanel = null, Func<IEnumerable<string>>? atFoot = null)
+    public HtmlString BuildPage(string title, Func<IEnumerable<string>>? atHead = null, Func<IEnumerable<string>>? atBody = null, 
+                                Func<IEnumerable<string>>? atSidePanel = null, Func<IEnumerable<string>>? atFoot = null)
     {
         var head = _templates.head.Render(new
         {
@@ -591,7 +654,9 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
         if (pages is not null)
             return pages;
 
-        var (collection, database) = GetPageCollectionWithIndex();
+        using var database = new LiteDatabase(GetDatabasePath());
+        var collection = database.GetCollection<Page>(PageCollectionName);
+        collection.EnsureIndex(page => page.Name);
         var items = collection.Query().ToList();
 
         _cache.Set(AllPagesKey, items, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(CacheAllPagesForMinutes)));
@@ -601,10 +666,29 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
     // Get a wiki page based on its path.
     public Page? GetPage(string path)
     {
-        var (collection, database) = GetPageCollectionWithIndex();
+        using var database = new LiteDatabase(GetDatabasePath());
+        var collection = database.GetCollection<Page>(PageCollectionName);
+        collection.EnsureIndex(page => page.Name);
         return collection.Query()
                          .Where(page => page.Name.Equals(path, StringComparison.OrdinalIgnoreCase))
                          .FirstOrDefault();
+    }
+
+    public List<ChangeRecord> GetChangeHistory()
+    {
+        using var database = new LiteDatabase(GetDatabasePath());
+        var collection = database.GetCollection<ChangeRecord>("ChangeHistory");
+        var history = collection.Query().ToList();
+        return history;
+    }
+
+    public void AddChangeRecord(ChangeRecord record)
+    {
+        using var database = new LiteDatabase(GetDatabasePath());
+        var collection = database.GetCollection<ChangeRecord>("ChangeHistory");
+
+        // Insert the new change record into the ChangeHistory collection.
+        collection.Insert(record);
     }
 
     // Save or update a wiki page. Cache(AllPagesKey) will be destroyed.
@@ -612,7 +696,9 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
     {
         try
         {
-            var (collection, database) = GetPageCollectionWithIndex();
+            using var database = new LiteDatabase(GetDatabasePath());
+            var collection = database.GetCollection<Page>(PageCollectionName);
+            collection.EnsureIndex(page => page.Name);
 
             Page? existingPage = input.Id.HasValue ? collection.FindOne(page => page.Id == input.Id) : null;
 
@@ -684,7 +770,9 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
     {
         try
         {
-            var (collection, database) = GetPageCollectionWithIndex();
+            using var database = new LiteDatabase(GetDatabasePath());
+            var collection = database.GetCollection<Page>(PageCollectionName);
+            collection.EnsureIndex(page => page.Name);
             var page = collection.FindById(pageId);
 
             if (page is null)
@@ -726,7 +814,9 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
     {
         try
         {
-            var (collection, database) = GetPageCollectionWithIndex();
+            using var database = new LiteDatabase(GetDatabasePath());
+            var collection = database.GetCollection<Page>(PageCollectionName);
+            collection.EnsureIndex(page => page.Name);
             var page = collection.FindById(id);
 
             if (page is null)
@@ -779,16 +869,6 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
         database.FileStorage.Download(fileId, stream);
         return (meta, stream.ToArray());
     }
-
-    // Utilities
-    public (LiteCollection<Page>, LiteDatabase) GetPageCollectionWithIndex()
-    {
-        using var database = new LiteDatabase(GetDatabasePath());
-        var collection = database.GetCollection<Page>(PageCollectionName);
-        collection.EnsureIndex(page => page.Name);
-        return ((LiteCollection<Page>)collection, database);
-    }
-
 }
 
 record Page
@@ -802,6 +882,16 @@ record Page
     public DateTime LastModifiedUtc { get; set; }
 
     public List<Attachment> Attachments { get; set; } = [];
+}
+
+record ChangeRecord
+{
+    // public ChangeRecord(string v1, DateTime v2)
+    // {
+    // }
+
+    public required string Name { get; set; }
+    public required DateTime Date { get; set; }
 }
 
 record Attachment
