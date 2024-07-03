@@ -27,7 +27,3 @@ To-Do:
     functionality:
         view image uploaded via markdown
         fix db shared issue
-
-    change landing page to uk as well
-    consider using cache and reusing stuff already used
-    check for more redundancy
