@@ -2,6 +2,7 @@
 /// 
 /// The application provides the following features:
 /// - Create, edit, and view wiki pages
+/// - Support for search and view history of changes
 /// - Support for file attachments
 /// - Basic functionality such as page deletion
 /// - Ensures pages are indexed for efficient retrieval
@@ -45,7 +46,7 @@ builder.Logging.AddConsole().SetMinimumLevel(LogLevel.Warning);
 var app = builder.Build();
 app.UseAntiforgery();
 
-// Load home page.
+// Load landing page.
 app.MapGet("/", (HttpContext context, IAntiforgery antiforgery) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(context);
@@ -66,7 +67,7 @@ app.MapGet("/", (HttpContext context, IAntiforgery antiforgery) =>
                             <a class="navbar-brand text-light">Knowledge Nexus</a>
                             <form class="d-flex">
                                 <input type="hidden" name="{tokens.FormFieldName}" value="{tokens.RequestToken}">
-                                <input name="searchParameter" class="form-control me-2" type="search" placeholder="Search" aria-label="Search">
+                                <input name="searchParameter" class="form-control me-2" type="search" placeholder="Search Page Name or Content" aria-label="Search Page or Content">
                                 <button hx-post="/search" hx-target="#searchTarget" class="btn btn-outline-light" type="submit">Search</button>
                             </form>
                         </div>
@@ -233,9 +234,9 @@ app.MapPost("/delete-attachment", async ([FromForm] StringValues id, [FromForm] 
     if (!isOk)
     {
         if (exception is not null)
-            app.Logger.LogError(exception, MessageErrorTemplate, $"Unable to delete page attachement with id {id}");
+            app.Logger.LogError(exception, MessageErrorTemplate, $"Unable to delete page attachment with id {id}");
         else
-            app.Logger.LogError(MessageErrorTemplate, $"Unable to delete page attachement with id {id}");
+            app.Logger.LogError(MessageErrorTemplate, $"Unable to delete page attachment with id {id}");
 
         if (page is not null)
             return Results.Redirect($"/{page.Name}");
@@ -245,7 +246,7 @@ app.MapPost("/delete-attachment", async ([FromForm] StringValues id, [FromForm] 
 
     wiki.AddChangeRecord(new ChangeRecord
                     {
-                        Name = $"Delete Attachement",
+                        Name = $"Delete Attachment",
                         Date = DateTime.UtcNow
                     });
                     
@@ -433,12 +434,23 @@ static string RenderPageAttachments(Page page)
         return string.Empty;
 
     var label = Span.Class("uk-label").Append("Attachments");
-    var list = Ul.Class("uk-list uk-list-disc");
+    var cardsContainer = Div.Class("uk-grid uk-grid-small uk-child-width-1-3@m uk-margin-top uk-margin-bottom")
+                            .Attribute("uk-grid", "");
+
     foreach (var attachment in page.Attachments)
     {
-        list = list.Append(Li.Append(A.Href($"/attachment?fileId={attachment.FileId}").Append(attachment.FileName)));
+        var card = Div.Class("uk-card uk-card-default uk-margin").Append(
+            Div.Class("uk-card-media-top").Append(
+                Img.Src($"/attachment?fileId={attachment.FileId}").Attribute("alt", attachment.FileName)
+            ),
+            Div.Class("uk-card-body attachment-card-body").Append(
+                A.Href($"/attachment?fileId={attachment.FileId}").Append(attachment.FileName)
+            )
+        );
+        cardsContainer = cardsContainer.Append(Div.Append(card));
     }
-    return label.ToHtmlString() + list.ToHtmlString();
+
+    return label.ToHtmlString() + cardsContainer.ToHtmlString();
 }
 
 static string RenderWikiInputForm(PageInput input, string path, AntiforgeryTokenSet antiForgery, ModelStateDictionary? modelState = null)
@@ -518,18 +530,20 @@ class Render
 
     static string[] MarkdownEditorFoot() =>
     [
-      @"<script>
+      """
+        <script>
         var easyMDE = new EasyMDE({
           insertTexts: {
-            link: [""["", ""]()""]
+            link: ["[", "]()"]
           }
         });
 
         function copyMarkdownLink(element) {
           element.select();
-          document.execCommand(""copy"");
+          document.execCommand("copy");
         }
-        </script>"
+        </script>
+        """
     ];
 
     (Template head, Template body, Template layout) _templates = (
@@ -550,6 +564,12 @@ class Render
                 }
                 nav * {
                     color: inherit !important;
+                }
+                .attachment-card-body {
+                    padding: 5px !important;
+                    max-height: 25px !important; 
+                    overflow: hidden;
+                    text-align: center;
                 }
             </style>
             """
@@ -702,7 +722,15 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
     readonly ILogger _logger = logger;
     
     // Get the location of the LiteDB file.
-    string GetDatabasePath() => Path.Combine(_env.ContentRootPath, "wiki.db");
+    ConnectionString GetDatabasePath()  
+    {
+        ConnectionString connectionString = new ConnectionString
+        {
+            Filename = Path.Combine(_env.ContentRootPath, "wiki.db"),
+            Connection = ConnectionType.Shared
+        };
+        return connectionString;
+    }
 
     // List all the available wiki pages. It is cached for 30 minutes.
     public List<Page> ListAllPages()

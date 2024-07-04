@@ -4,6 +4,7 @@ Updates:
     - removed warnings
     - removed unnecassary (! and $ operators)
     - made lines shorter
+    - add summary at the beginning of the file
     - added comments for better understanding
     - removed unnecassary comments
     - added spaces
@@ -20,10 +21,5 @@ Updates:
     - make a landing page
     - add change log
     - made it responsive
-
-To-Do:
-    style:
-        make the select file cursor change
-    functionality:
-        view image uploaded via markdown
-        fix db shared issue
+    - view image uploaded via markdown
+    - fix db shared issue      
