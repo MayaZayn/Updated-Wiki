@@ -67,7 +67,7 @@ app.MapGet("/", (HttpContext context, IAntiforgery antiforgery) =>
                             <a class="navbar-brand text-light">Knowledge Nexus</a>
                             <form class="d-flex">
                                 <input type="hidden" name="{tokens.FormFieldName}" value="{tokens.RequestToken}">
-                                <input name="searchParameter" class="form-control me-2" type="search" placeholder="Search Page Name or Content" aria-label="Search Page or Content">
+                                <input name="searchParameter" class="form-control me-2" type="search" placeholder="Search Page or Content" aria-label="Search Page or Content">
                                 <button hx-post="/search" hx-target="#searchTarget" class="btn btn-outline-light" type="submit">Search</button>
                             </form>
                         </div>
@@ -712,11 +712,9 @@ class Render
 class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
 {
     static DateTime Timestamp() => DateTime.UtcNow;
-
     const string PageCollectionName = "Pages";
     const string AllPagesKey = "AllPages";
     const double CacheAllPagesForMinutes = 30;
-
     readonly IWebHostEnvironment _env = env;
     readonly IMemoryCache _cache = cache;
     readonly ILogger _logger = logger;
