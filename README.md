@@ -1,24 +1,24 @@
 # Updated-Wiki
 
 Updates:
-    - removed warnings
-    - removed unnecassary (! and $ operators)
-    - made lines shorter
-    - add summary at the beginning of the file
-    - added comments for better understanding
-    - removed unnecassary comments
-    - added spaces
-    - adjusted indentation
-    - made templates for logging messages
-    - renamed vague variables
-    - use raw string (re check)
-    - separate various . operators on different lines
-    - change constructor in Wiki class to primary constructor
-    - improve some error messages
-    - fix typos
-    - add app.UseAntiforgery()
-    - add search
-    - add change log
-    - made it responsive
-    - view image uploaded via markdown
-    - fix db shared issue
+- Removed warnings
+- Removed unnecassary (! and $ operators)
+- Made lines shorter
+- Added summary at the beginning of the file
+- Added comments for better understanding
+- Removed unnecassary comments
+- Added spaces
+- Adjusted indentation
+- Made templates for logging messages
+- Renamed vague variables
+- Used raw string (re check)
+- Separate various . operators on different lines
+- Change constructor in Wiki class to primary constructor
+- Improve some error messages
+- Fix typos
+- Add app.UseAntiforgery()
+- Add search functionality
+- Add change log feature
+- Made it responsive
+- Add view image uploaded via markdown feature
+- Fix database shared issue      
