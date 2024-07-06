@@ -46,47 +46,23 @@ builder.Logging.AddConsole().SetMinimumLevel(LogLevel.Warning);
 var app = builder.Build();
 app.UseAntiforgery();
 
-// Load landing page.
-app.MapGet("/", (HttpContext context, IAntiforgery antiforgery) =>
+// Load home page.
+app.MapGet("/", (Wiki wiki, Render render, IAntiforgery antiforgery, HttpContext context) =>
 {
-    var tokens = antiforgery.GetAndStoreTokens(context);
-    return Results.Content($"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Knowledge Nexus</title>
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
-        </head>
-        <body>
-            <div id="mainContent">
-                <header>
-                    <nav class="navbar navbar-light bg-dark">
-                        <div class="container-fluid">
-                            <a class="navbar-brand text-light">Knowledge Nexus</a>
-                            <form class="d-flex">
-                                <input type="hidden" name="{tokens.FormFieldName}" value="{tokens.RequestToken}">
-                                <input name="searchParameter" class="form-control me-2" type="search" placeholder="Search Page or Content" aria-label="Search Page or Content">
-                                <button hx-post="/search" hx-target="#searchTarget" class="btn btn-outline-light" type="submit">Search</button>
-                            </form>
-                        </div>
-                    </nav>
-                </header>
-                <main id="searchTarget">
-                    <div class="d-flex justify-content-center align-items-center vh-100">
-                        <div class="container mt-5 w-75 text-dark">
-                            <h1 class="text-center fs-1 fw-bold">Welcome to Knowledge Nexus</h1>
-                            <p class="text-center">Explore, Learn, Share: Unveiling Knowledge Together..</p>
-                        </div>
-                    </div>
-                </main>
-            </div>
-            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
-            <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
-        </body>
-        </html>
-    """, HtmlMime);
+    Page? page = wiki.GetPage(HomePageName);
+
+    if (page is not object)
+        return Results.Redirect($"/{HomePageName}");
+
+    return Results.Text(render.BuildPage(HomePageName, atBody: () =>
+        new[]
+        {
+          RenderPageContent(page),
+          RenderPageAttachments(page),
+          A.Href($"/edit?pageName={HomePageName}").Class("uk-button uk-button-default uk-button-small").Append("Edit").ToHtmlString()
+        },
+        atSidePanel: () => RenderAllPages(wiki, antiforgery, context)
+      ).ToString(), HtmlMime);
 });
 
 // Create and redirect to a new page.
@@ -170,7 +146,7 @@ app.MapGet("/{pageName}", (string pageName, HttpContext context,
                 .ToString(DisplayDateFormat)).ToHtmlString(),
                 A.Href($"/edit?pageName={pageName}").Append("Edit").ToHtmlString()
             ],
-            atSidePanel: () => RenderAllPages(wiki)
+            atSidePanel: () => RenderAllPages(wiki, antiForgery, context)
         ).ToString(), HtmlMime);
     }
     else
@@ -273,7 +249,7 @@ app.MapPost("/{pageName}", async (HttpContext context, Wiki wiki, Render render,
                 RenderWikiInputForm(input, path: $"{pageName}", 
                     antiForgery: antiForgery.GetAndStoreTokens(context), modelState)
             ],
-            atSidePanel: () => RenderAllPages(wiki)).ToString(), HtmlMime);
+            atSidePanel: () => RenderAllPages(wiki, antiForgery, context)).ToString(), HtmlMime);
     }
 
     var (isOk, page, exception) = wiki.SavePage(input);
@@ -309,27 +285,50 @@ await app.RunAsync();
 
 // End of the web part.
 
-static string[] RenderAllPages(Wiki wiki) =>
-[
-    $"""<span class="uk-label">Pages</span>""",
-    $"""<ul class="uk-list">""",
-    string.Join("",
-        wiki.ListAllPages().OrderBy(page => page.Name)
-        .Select(page => Li.Append(A.Href(page.Name).Append(page.Name)).ToHtmlString())
-    ),
-    "</ul>"
-];
+static string[] RenderAllPages(Wiki wiki, IAntiforgery antiforgery, HttpContext context)
+{
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    return [
+        $"""
+        <button class="uk-button uk-button-default uk-margin-small-right" type="button" uk-toggle="target: #modal-example">Search</button>
+        <!-- This is the modal -->
+        <div id="modal-example" uk-modal>
+            <div class="uk-modal-dialog uk-modal-body">
+                <!-- <h2 class="uk-modal-title">Search</h2> -->
+                <div class="uk-margin">
+                    <form hx-post="/search" hx-target="#searchResults" class="uk-search uk-search-default uk-align-center">
+                        <input type="hidden" name="{tokens.FormFieldName}" value="{tokens.RequestToken}">
+                        <input name="searchParameter" class="uk-search-input" type="search" placeholder="Search" aria-label="Search">
+                        <button class="uk-search-icon-flip" uk-search-icon></button>
+                    </form>
+                </div>
+                <hr>
+                <div id="searchResults"></div>
+                <p class="uk-text-right">
+                    <button class="uk-button uk-button-default uk-modal-close" type="button">Cancel</button>
+                </p>
+            </div>
+        </div>
+        <hr>
+        """,
+        $"""<span class="uk-label">Pages</span>""",
+        $"""<ul class="uk-list">""",
+        string.Join("",
+            wiki.ListAllPages().OrderBy(page => page.Name)
+            .Select(page => Li.Append(A.Href(page.Name).Append(page.Name)).ToHtmlString())
+        ),
+        "</ul>"
+    ];
+};
 
 static string RenderSearchResults(List<Page> pages) =>
     $"""
-        <div class="card m-auto mt-5" style="width: 18rem;">
-            <div class="card-header">
-                Results
-            </div>
-            <ul class="list-group list-group-flush">
+        <div class="uk-card uk-card-default uk-card-body">
+            <h3 class="uk-card-title">Results</h3>
+            <ul class="uk-list uk-list-striped">
     """ + string.Join("",
         pages.OrderBy(page => page.Name)
-        .Select(page => Li.Class("list-group-item").Append(A.Href(page.Name).Append(page.Name)).ToHtmlString())
+        .Select(page => Li.Append(A.Href(page.Name).Append(page.Name)).ToHtmlString())
     ) + "</ul>";
 
 static string[] RenderAllPagesForEditing(Wiki wiki)
@@ -571,6 +570,9 @@ class Render
                     overflow: hidden;
                     text-align: center;
                 }
+                .add-page-input {
+                    color: black !important;
+                }
             </style>
             """
         ),
@@ -587,7 +589,7 @@ class Render
                         <div class="uk-navbar-center uk-visible@m">
                             <div class="uk-navbar-item">
                                 <form action="/new-page">
-                                    <input class="uk-input uk-form-width-large" type="text" name="pageName" placeholder="Type desired page title here"></input>
+                                    <input class="uk-input uk-form-width-large add-page-input" type="text" name="pageName" placeholder="Type desired page title here"></input>
                                     <input type="submit" class="uk-button uk-button-default" value="Add New Page">
                                 </form>
                             </div>
@@ -676,7 +678,6 @@ class Render
         return BuildPage("Change History", atBody: atBody);
     }
 
-
     // Use only when the page requires editor.
     public HtmlString BuildEditorPage(string title, Func<IEnumerable<string>> atBody, Func<IEnumerable<string>>? atSidePanel = null) =>
       BuildPage(
@@ -722,14 +723,14 @@ class Wiki(IWebHostEnvironment env, IMemoryCache cache, ILogger<Wiki> logger)
     // Get the location of the LiteDB file.
     ConnectionString GetDatabasePath()  
     {
-        ConnectionString connectionString = new ConnectionString
+        ConnectionString connectionString = new()
         {
             Filename = Path.Combine(_env.ContentRootPath, "wiki.db"),
             Connection = ConnectionType.Shared
         };
         return connectionString;
     }
-
+    
     // List all the available wiki pages. It is cached for 30 minutes.
     public List<Page> ListAllPages()
     {

@@ -18,8 +18,7 @@ Updates:
     - fix typos
     - add app.UseAntiforgery()
     - add search
-    - make a landing page
     - add change log
     - made it responsive
     - view image uploaded via markdown
-    - fix db shared issue      
+    - fix db shared issue
